@@ -3,33 +3,32 @@ import requests
 import json
 import os
 import pandas as pd
+from azure.storage.blob import BlobServiceClient
 
 # --- Configuration ---
-AZURE_FUNCTION_ENDPOINT = "https://projet10func-frcmc6egdyamhzhe.francecentral-01.azurewebsites.net/api/recommend"
-USER_INTERACTIONS_PATH = "processed_data/user_interactions.json"
+# Récupérer l'URL de la fonction et la clé de fonction depuis les variables d'environnement
+AZURE_FUNCTION_ENDPOINT = os.environ.get("AZURE_FUNCTION_ENDPOINT", "http://localhost:7071/api/recommend")
+AZURE_FUNCTION_KEY = os.environ.get("AZURE_FUNCTION_KEY")
+AZURE_STORAGE_CONNECTION_STRING = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
+
 ARTICLES_METADATA_PATH = "processed_data/articles_metadata.json"
 
 # --- Helper Functions ---
 @st.cache_data
-def load_user_ids(file_path):
-    """Loads user IDs from the user interactions JSONL file."""
+def load_user_ids_from_blob(connection_string, container_name="userinfosjson", blob_name="user_interactions.json"):
+    """Loads user IDs from the user interactions JSONL file in Blob Storage."""
     user_ids = set()
     try:
-        with open(file_path, 'r') as f:
-            for line in f:
-                try:
-                    item = json.loads(line)
-                    if 'user_id' in item:
-                        user_ids.add(item['user_id'])
-                except json.JSONDecodeError:
-                    st.warning(f"Skipping malformed JSON line in {file_path}: {line[:100]}...")
-                    continue
+        blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+        blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
+        blob_data = blob_client.download_blob().readall()
+        user_interactions = json.loads(blob_data.decode('utf-8'))
+        for item in user_interactions:
+            if 'user_id' in item:
+                user_ids.add(item['user_id'])
         return sorted(list(user_ids))
-    except FileNotFoundError:
-        st.error(f"Error: User interactions file not found at {file_path}")
-        return []
     except Exception as e:
-        st.error(f"An unexpected error occurred while loading user IDs: {e}")
+        st.error(f"An unexpected error occurred while loading user IDs from Blob Storage: {e}")
         return []
 
 @st.cache_data
@@ -56,7 +55,10 @@ def load_articles_metadata(file_path):
 
 def get_recommendations(user_id, n_recommendations=5):
     """Calls the Azure Function to get recommendations."""
-    headers = {"Content-Type": "application/json"}
+    headers = {
+        "Content-Type": "application/json",
+        "x-functions-key": AZURE_FUNCTION_KEY
+    }
     payload = {"user_id": user_id, "n_recommendations": n_recommendations}
     try:
         response = requests.post(AZURE_FUNCTION_ENDPOINT, headers=headers, json=payload)
@@ -85,7 +87,12 @@ st.title("Article Recommender System")
 st.markdown("---")
 
 # Load data
-user_ids = load_user_ids(USER_INTERACTIONS_PATH)
+if AZURE_STORAGE_CONNECTION_STRING:
+    user_ids = load_user_ids_from_blob(AZURE_STORAGE_CONNECTION_STRING)
+else:
+    st.error("AZURE_STORAGE_CONNECTION_STRING environment variable not set. Cannot load user IDs.")
+    user_ids = []
+
 articles_metadata = load_articles_metadata(ARTICLES_METADATA_PATH)
 
 if not user_ids:
