@@ -1,0 +1,11 @@
+azure-functions
+pandas
+numpy
+scikit-learn
+scipy
+joblib
+fastapi
+uvicorn
+streamlit
+requests
+azure-storage-blob
