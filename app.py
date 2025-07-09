@@ -11,47 +11,23 @@ AZURE_FUNCTION_ENDPOINT = os.environ.get("AZURE_FUNCTION_ENDPOINT", "http://loca
 AZURE_FUNCTION_KEY = os.environ.get("AZURE_FUNCTION_KEY")
 AZURE_STORAGE_CONNECTION_STRING = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
 
-ARTICLES_METADATA_PATH = "processed_data/articles_metadata.json"
-
 # --- Helper Functions ---
 @st.cache_data
-def load_user_ids_from_blob(connection_string, container_name="userinfosjson", blob_name="user_interactions.json"):
-    """Loads user IDs from the user interactions JSONL file in Blob Storage."""
-    user_ids = set()
+def load_data_from_blob(connection_string, container_name, blob_name, is_pickle=False):
+    """
+    Charge des données depuis un blob Azure.
+    """
     try:
         blob_service_client = BlobServiceClient.from_connection_string(connection_string)
         blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
         blob_data = blob_client.download_blob().readall()
-        user_interactions = json.loads(blob_data.decode('utf-8'))
-        for item in user_interactions:
-            if 'user_id' in item:
-                user_ids.add(item['user_id'])
-        return sorted(list(user_ids))
+        if is_pickle:
+            return pickle.loads(blob_data)
+        else:
+            return json.loads(blob_data.decode('utf-8'))
     except Exception as e:
-        st.error(f"An unexpected error occurred while loading user IDs from Blob Storage: {e}")
-        return []
-
-@st.cache_data
-def load_articles_metadata(file_path):
-    """Loads articles metadata from the JSONL file."""
-    articles_metadata = {}
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                try:
-                    article = json.loads(line)
-                    if 'article_id' in article:
-                        articles_metadata[str(article['article_id'])] = article # Ensure key is string
-                except json.JSONDecodeError:
-                    st.warning(f"Skipping malformed JSON line in {file_path}: {line[:100]}...")
-                    continue
-        return articles_metadata
-    except FileNotFoundError:
-        st.error(f"Error: Articles metadata file not found at {file_path}")
-        return {}
-    except Exception as e:
-        st.error(f"An unexpected error occurred while loading articles metadata: {e}")
-        return {}
+        st.error(f"An unexpected error occurred while loading {blob_name} from Blob Storage: {e}")
+        return None
 
 def get_recommendations(user_id, n_recommendations=5):
     """Calls the Azure Function to get recommendations."""
@@ -88,12 +64,16 @@ st.markdown("---")
 
 # Load data
 if AZURE_STORAGE_CONNECTION_STRING:
-    user_ids = load_user_ids_from_blob(AZURE_STORAGE_CONNECTION_STRING)
+    user_interactions = load_data_from_blob(AZURE_STORAGE_CONNECTION_STRING, "userinfosjson", "user_interactions.json")
+    articles_metadata = load_data_from_blob(AZURE_STORAGE_CONNECTION_STRING, "processed-data", "articles_metadata.json")
+    if user_interactions:
+        user_ids = sorted(list(set([item['user_id'] for item in user_interactions])))
+    else:
+        user_ids = []
 else:
-    st.error("AZURE_STORAGE_CONNECTION_STRING environment variable not set. Cannot load user IDs.")
+    st.error("AZURE_STORAGE_CONNECTION_STRING environment variable not set. Cannot load data.")
     user_ids = []
-
-articles_metadata = load_articles_metadata(ARTICLES_METADATA_PATH)
+    articles_metadata = None
 
 if not user_ids:
     st.warning("No user IDs found or an error occurred loading them. Cannot proceed.")
