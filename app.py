@@ -4,6 +4,7 @@ import json
 import os
 import pandas as pd
 from azure.storage.blob import BlobServiceClient
+import gc
 
 # --- Configuration ---
 # Récupérer l'URL de la fonction et la clé de fonction depuis les variables d'environnement
@@ -33,6 +34,17 @@ def load_data_from_blob(connection_string, container_name, blob_name, is_pickle=
     except Exception as e:
         st.error(f"An unexpected error occurred while loading {blob_name} from Blob Storage: {e}")
         return None
+
+def optimize_dataframe_memory(df):
+    """
+    Optimise la mémoire utilisée par un DataFrame pandas.
+    """
+    for col in df.columns:
+        if df[col].dtype == 'float64':
+            df[col] = df[col].astype('float32')
+        if df[col].dtype == 'int64':
+            df[col] = df[col].astype('int32')
+    return df
 
 def get_recommendations(user_id, n_recommendations=5):
     """Calls the Azure Function to get recommendations."""
@@ -69,26 +81,40 @@ st.markdown("---")
 
 # Load data
 if AZURE_STORAGE_CONNECTION_STRING:
-    user_interactions = load_data_from_blob(AZURE_STORAGE_CONNECTION_STRING, "userinfosjson", "user_interactions.json", is_json_lines=True)
+    user_interactions_list = load_data_from_blob(AZURE_STORAGE_CONNECTION_STRING, "userinfosjson", "user_interactions.json", is_json_lines=True)
+    user_interactions = pd.DataFrame(user_interactions_list)
+    user_interactions = optimize_dataframe_memory(user_interactions)
+    
     articles_metadata_list = load_data_from_blob(AZURE_STORAGE_CONNECTION_STRING, "processed-data", "articles_metadata.json", is_json_lines=True)
-    if user_interactions:
-        user_ids = sorted(list(set([item['user_id'] for item in user_interactions])))
+    articles_metadata = pd.DataFrame(articles_metadata_list)
+    articles_metadata = optimize_dataframe_memory(articles_metadata)
+    
+    if user_interactions is not None:
+        user_ids = sorted(list(set(user_interactions['user_id'])))
     else:
         user_ids = []
-    if articles_metadata_list:
-        articles_metadata = {str(article['article_id']): article for article in articles_metadata_list}
+    
+    if articles_metadata is not None:
+        articles_metadata_dict = {str(article['article_id']): article for article in articles_metadata.to_dict('records')}
     else:
-        articles_metadata = {}
+        articles_metadata_dict = {}
+        
+    # Libérer la mémoire
+    del user_interactions_list
+    del articles_metadata_list
+    del user_interactions
+    del articles_metadata
+    gc.collect()
 else:
     st.error("AZURE_STORAGE_CONNECTION_STRING environment variable not set. Cannot load data.")
     user_ids = []
-    articles_metadata = {}
+    articles_metadata_dict = {}
 
 if not user_ids:
     st.warning("No user IDs found or an error occurred loading them. Cannot proceed.")
     st.stop()
 
-if not articles_metadata:
+if not articles_metadata_dict:
     st.warning("No article metadata found or an error occurred loading it. Recommendations will not show full details.")
 
 # User selection
@@ -110,7 +136,7 @@ if st.button("Get 5 Recommendations"):
 
                 for i, rec_article_id in enumerate(recommendations):
                     with cols[i % 3]: # Distribute cards across columns
-                        article_info = articles_metadata.get(str(rec_article_id)) # Ensure key is string if IDs are strings
+                        article_info = articles_metadata_dict.get(str(rec_article_id)) # Ensure key is string if IDs are strings
                         if article_info:
                             st.markdown(f"**Title:** {article_info.get('title', 'N/A')}")
                             st.markdown(f"**Category:** {article_info.get('category', 'N/A')}")
