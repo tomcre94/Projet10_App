@@ -3,36 +3,34 @@ import requests
 import json
 import os
 import pandas as pd
-from azure.storage.blob import BlobServiceClient
 import gc
 
 # --- Configuration ---
 # Récupérer l'URL de la fonction et la clé de fonction depuis les variables d'environnement
 AZURE_FUNCTION_ENDPOINT = os.environ.get("AZURE_FUNCTION_ENDPOINT", "http://localhost:7071/api/recommend")
 AZURE_FUNCTION_KEY = os.environ.get("AZURE_FUNCTION_KEY")
-AZURE_STORAGE_CONNECTION_STRING = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
+
+USER_INTERACTIONS_PATH = "processed_data/user_interactions.json"
+ARTICLES_METADATA_PATH = "processed_data/articles_metadata.json"
 
 # --- Helper Functions ---
 @st.cache_data
-def load_data_from_blob(connection_string, container_name, blob_name, is_pickle=False, is_json_lines=False):
+def load_data_from_local(file_path, is_json_lines=False):
     """
-    Charge des données depuis un blob Azure.
+    Charge des données depuis un fichier local.
     """
     try:
-        blob_service_client = BlobServiceClient.from_connection_string(connection_string)
-        blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
-        blob_data = blob_client.download_blob().readall()
-        if is_pickle:
-            return pickle.loads(blob_data)
-        elif is_json_lines:
+        if is_json_lines:
             data = []
-            for line in blob_data.decode('utf-8').splitlines():
-                data.append(json.loads(line))
+            with open(file_path, 'r') as f:
+                for line in f:
+                    data.append(json.loads(line))
             return data
         else:
-            return json.loads(blob_data.decode('utf-8'))
+            with open(file_path, 'r') as f:
+                return json.load(f)
     except Exception as e:
-        st.error(f"An unexpected error occurred while loading {blob_name} from Blob Storage: {e}")
+        st.error(f"An unexpected error occurred while loading {file_path} from local file: {e}")
         return None
 
 def optimize_dataframe_memory(df):
@@ -80,35 +78,30 @@ st.title("Article Recommender System")
 st.markdown("---")
 
 # Load data
-if AZURE_STORAGE_CONNECTION_STRING:
-    user_interactions_list = load_data_from_blob(AZURE_STORAGE_CONNECTION_STRING, "userinfosjson", "user_interactions.json", is_json_lines=True)
-    user_interactions = pd.DataFrame(user_interactions_list)
-    user_interactions = optimize_dataframe_memory(user_interactions)
-    
-    articles_metadata_list = load_data_from_blob(AZURE_STORAGE_CONNECTION_STRING, "processed-data", "articles_metadata.json", is_json_lines=True)
-    articles_metadata = pd.DataFrame(articles_metadata_list)
-    articles_metadata = optimize_dataframe_memory(articles_metadata)
-    
-    if user_interactions is not None:
-        user_ids = sorted(list(set(user_interactions['user_id'])))
-    else:
-        user_ids = []
-    
-    if articles_metadata is not None:
-        articles_metadata_dict = {str(article['article_id']): article for article in articles_metadata.to_dict('records')}
-    else:
-        articles_metadata_dict = {}
-        
-    # Libérer la mémoire
-    del user_interactions_list
-    del articles_metadata_list
-    del user_interactions
-    del articles_metadata
-    gc.collect()
+user_interactions_list = load_data_from_local(USER_INTERACTIONS_PATH, is_json_lines=True)
+user_interactions = pd.DataFrame(user_interactions_list)
+user_interactions = optimize_dataframe_memory(user_interactions)
+
+articles_metadata_list = load_data_from_local(ARTICLES_METADATA_PATH, is_json_lines=True)
+articles_metadata = pd.DataFrame(articles_metadata_list)
+articles_metadata = optimize_dataframe_memory(articles_metadata)
+
+if user_interactions is not None:
+    user_ids = sorted(list(set(user_interactions['user_id'])))
 else:
-    st.error("AZURE_STORAGE_CONNECTION_STRING environment variable not set. Cannot load data.")
     user_ids = []
+
+if articles_metadata is not None:
+    articles_metadata_dict = {str(article['article_id']): article for article in articles_metadata.to_dict('records')}
+else:
     articles_metadata_dict = {}
+
+# Libérer la mémoire
+del user_interactions_list
+del articles_metadata_list
+del user_interactions
+del articles_metadata
+gc.collect()
 
 if not user_ids:
     st.warning("No user IDs found or an error occurred loading them. Cannot proceed.")
