@@ -13,7 +13,7 @@ AZURE_STORAGE_CONNECTION_STRING = os.environ.get("AZURE_STORAGE_CONNECTION_STRIN
 
 # --- Helper Functions ---
 @st.cache_data
-def load_data_from_blob(connection_string, container_name, blob_name, is_pickle=False):
+def load_data_from_blob(connection_string, container_name, blob_name, is_pickle=False, is_json_lines=False):
     """
     Charge des données depuis un blob Azure.
     """
@@ -23,6 +23,11 @@ def load_data_from_blob(connection_string, container_name, blob_name, is_pickle=
         blob_data = blob_client.download_blob().readall()
         if is_pickle:
             return pickle.loads(blob_data)
+        elif is_json_lines:
+            data = []
+            for line in blob_data.decode('utf-8').splitlines():
+                data.append(json.loads(line))
+            return data
         else:
             return json.loads(blob_data.decode('utf-8'))
     except Exception as e:
@@ -64,16 +69,20 @@ st.markdown("---")
 
 # Load data
 if AZURE_STORAGE_CONNECTION_STRING:
-    user_interactions = load_data_from_blob(AZURE_STORAGE_CONNECTION_STRING, "userinfosjson", "user_interactions.json")
-    articles_metadata = load_data_from_blob(AZURE_STORAGE_CONNECTION_STRING, "processed-data", "articles_metadata.json")
+    user_interactions = load_data_from_blob(AZURE_STORAGE_CONNECTION_STRING, "userinfosjson", "user_interactions.json", is_json_lines=True)
+    articles_metadata_list = load_data_from_blob(AZURE_STORAGE_CONNECTION_STRING, "processed-data", "articles_metadata.json", is_json_lines=True)
     if user_interactions:
         user_ids = sorted(list(set([item['user_id'] for item in user_interactions])))
     else:
         user_ids = []
+    if articles_metadata_list:
+        articles_metadata = {str(article['article_id']): article for article in articles_metadata_list}
+    else:
+        articles_metadata = {}
 else:
     st.error("AZURE_STORAGE_CONNECTION_STRING environment variable not set. Cannot load data.")
     user_ids = []
-    articles_metadata = None
+    articles_metadata = {}
 
 if not user_ids:
     st.warning("No user IDs found or an error occurred loading them. Cannot proceed.")
