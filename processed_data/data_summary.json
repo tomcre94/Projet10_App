@@ -1,0 +1,11 @@
+{
+    "total_interactions": 640756,
+    "total_users": 10000,
+    "total_articles": 5000,
+    "total_sessions": 172701,
+    "embedding_dimensions": 52,
+    "min_click_timestamp": "2017-10-01T03:00:04.207000",
+    "max_click_timestamp": "2017-10-18T09:44:33.828000",
+    "min_article_creation_timestamp": "2013-04-25T19:24:27",
+    "max_article_creation_timestamp": "2017-10-17T15:02:46"
+}
