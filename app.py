@@ -6,9 +6,8 @@ import pandas as pd
 import gc
 
 # --- Configuration ---
-# Récupérer l'URL de la fonction et la clé de fonction depuis les variables d'environnement
+# Récupérer l'URL de la fonction depuis les variables d'environnement
 AZURE_FUNCTION_ENDPOINT = os.environ.get("AZURE_FUNCTION_ENDPOINT", "http://localhost:7071/api/recommend")
-AZURE_FUNCTION_KEY = os.environ.get("AZURE_FUNCTION_KEY")
 
 USER_INTERACTIONS_PATH = "processed_data/user_interactions.json"
 ARTICLES_METADATA_PATH = "processed_data/articles_metadata.json"
@@ -45,18 +44,21 @@ def optimize_dataframe_memory(df):
     return df
 
 def get_recommendations(user_id, n_recommendations=5):
-    """Calls the Azure Function to get recommendations."""
-    headers = {
-        "Content-Type": "application/json",
-        "x-functions-key": AZURE_FUNCTION_KEY
+    """Calls the Azure Function to get recommendations using GET method."""
+    params = {
+        "user_id": user_id, 
+        "n_recommendations": n_recommendations
     }
-    payload = {"user_id": user_id, "n_recommendations": n_recommendations}
+    headers = {
+        "Content-Type": "application/json"
+    }
+    
     try:
-        response = requests.post(AZURE_FUNCTION_ENDPOINT, headers=headers, json=payload)
+        response = requests.get(AZURE_FUNCTION_ENDPOINT, params=params, headers=headers)
         response.raise_for_status()  # Raise an HTTPError for bad responses (4xx or 5xx)
         return response.json()
     except requests.exceptions.ConnectionError:
-        st.error("Connection Error: Could not connect to the Azure Function. Please ensure it is running locally.")
+        st.error("Connection Error: Could not connect to the Azure Function. Please ensure it is running and accessible.")
         return None
     except requests.exceptions.Timeout:
         st.error("Timeout Error: The request to the Azure Function timed out.")
@@ -147,4 +149,4 @@ if st.button("Get 5 Recommendations"):
         st.warning("Please select a User ID.")
 
 st.markdown("---")
-st.info("Ensure your Azure Function is running locally on port 7071 for this application to work.")
+st.info("Ensure your Azure Function is running and accessible for this application to work.")
