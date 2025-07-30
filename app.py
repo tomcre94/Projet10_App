@@ -125,22 +125,38 @@ if st.button("Get 5 Recommendations"):
             st.success("Recommendations received!")
             st.subheader(f"Recommendations for User ID: {selected_user_id}")
 
-            if isinstance(recommendations, list) and recommendations:
+            # Extract recommendations from the response
+            recs_list = recommendations.get('recommendations', [])
+            
+            if recs_list:
+                # Display message if available
+                if 'message' in recommendations:
+                    st.info(recommendations['message'])
+                
                 # Create columns for a card-like display
                 cols = st.columns(3) # Adjust number of columns as needed
 
-                for i, rec_article_id in enumerate(recommendations):
+                for i, rec in enumerate(recs_list):
                     with cols[i % 3]: # Distribute cards across columns
-                        article_info = articles_metadata_dict.get(str(rec_article_id)) # Ensure key is string if IDs are strings
+                        # Get article_id from the recommendation object
+                        rec_article_id = rec.get('article_id')
+                        
+                        # Use title from recommendation if available, otherwise look in metadata
+                        rec_title = rec.get('title', 'N/A')
+                        rec_score = rec.get('score', 0)
+                        rec_reason = rec.get('reason', 'N/A')
+                        
+                        # Try to get additional info from metadata
+                        article_info = articles_metadata_dict.get(str(rec_article_id))
+                        
+                        st.markdown(f"**Title:** {rec_title}")
                         if article_info:
-                            st.markdown(f"**Title:** {article_info.get('title', 'N/A')}")
                             st.markdown(f"**Category:** {article_info.get('category', 'N/A')}")
                             st.markdown(f"**URL:** [Link]({article_info.get('url', '#')})")
-                            st.markdown("---")
-                        else:
-                            st.warning(f"Details for article ID {rec_article_id} not found.")
-                            st.markdown(f"**Article ID:** {rec_article_id}")
-                            st.markdown("---")
+                        st.markdown(f"**Score:** {rec_score:.3f}")
+                        st.markdown(f"**Reason:** {rec_reason}")
+                        st.markdown(f"**Article ID:** {rec_article_id}")
+                        st.markdown("---")
             else:
                 st.info("No recommendations returned for this user.")
         else:
